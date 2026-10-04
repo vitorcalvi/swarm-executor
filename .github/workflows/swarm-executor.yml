@@ -1,0 +1,43 @@
+name: Swarm Executor
+run-name: swarm-${{ inputs.task_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      task_id: {description: Task ID, required: true, type: string}
+      repo: {description: owner/repo, required: true, type: string}
+      ref: {description: commit or ref, required: true, type: string}
+      command_b64: {description: base64 shell command, required: true, type: string}
+permissions:
+  contents: read
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout target
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repo }}
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - name: Execute bounded task
+        id: run
+        shell: bash
+        run: |
+          set +e
+          printf '%s' '${{ inputs.command_b64 }}' | base64 -d > /tmp/swarm-command.sh
+          chmod 700 /tmp/swarm-command.sh
+          timeout 900 bash /tmp/swarm-command.sh > /tmp/swarm.log 2>&1
+          rc=$?
+          printf '{"task_id":"%s","exit_code":%s,"runner":"github"}\n' '${{ inputs.task_id }}' "$rc" > /tmp/result.json
+          cat /tmp/swarm.log
+          exit "$rc"
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swarm-${{ inputs.task_id }}
+          path: |
+            /tmp/result.json
+            /tmp/swarm.log
+          retention-days: 1
